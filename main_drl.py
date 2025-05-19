@@ -8,9 +8,11 @@ from matplotlib.patches import Polygon as MplPolygon
 from matplotlib.collections import PatchCollection
 
 from mobility_utils import generate_mobility
-from map_utils import recompute_regions, search_closest_bs
+from map_utils import recompute_regions
 from radio_utils import compute_sinr_dl
 from scipy.ndimage import uniform_filter1d
+
+from stable_baselines3 import PPO
 
 # === CONFIGURACIÓN ===
 MAP_LIMIT = 1000
@@ -31,6 +33,8 @@ RADIOS_PER_USER = 2
 sim_times = np.arange(0, SIM_TIME + TIME_STEP, TIME_STEP)
 os.makedirs("results", exist_ok=True)
 
+# === CARGAR MODELO PPO ===
+model = PPO.load("ppo_cellular_multi_connectivity")
 
 # === CARGAR ESTACIONES BASE ===
 mat = scipy.io.loadmat("nice_setup_Proteus.mat")
@@ -119,28 +123,38 @@ live_femto_usage = []
 live_throughput = []
 live_times = []
 
+bs_user_count = np.zeros(n_points, dtype=int)
 for i, t in enumerate(sim_times):
     active_cells = np.zeros(n_points, dtype=bool)
-    bs_user_count = np.zeros(n_points, dtype=int)
     throughput = 0
 
+    # === Construir observación para el DRL ===
+    user_pos_this_step = []
     for u, (ux, uy) in enumerate(user_positions[:N_USERS]):
         x = ux[i]
         y = uy[i]
+        user_pos_this_step.extend([x, y])
         user_dots[u].set_data(x, y)
 
-        already_chosen = []
-        for r in range(RADIOS_PER_USER):
-            bs_idx = search_closest_bs((x, y), recompute_regions(
-                n_points=n_points,
-                map_limit=MAP_LIMIT,
-                base_stations=base_stations,
-                alpha_loss=ALPHA_LOSS,
-                to_remove=already_chosen
-            ))
-            already_chosen.append(bs_idx)
+    obs_vec = np.array(user_pos_this_step + list(bs_user_count), dtype=np.float32).reshape(1, -1)
 
-            bs_user_count[bs_idx] += 1
+    # === Obtener asociaciones del DRL ===
+    action, _ = model.predict(obs_vec, deterministic=True)
+    associations = np.array(action).reshape((N_USERS, RADIOS_PER_USER))
+
+    # Reset conteo BS
+    bs_user_count = np.zeros(n_points, dtype=int)
+    user_bs_sets = [set() for _ in range(n_points)]
+
+    for u in range(N_USERS):
+        x = user_positions[u][0][i]
+        y = user_positions[u][1][i]
+
+        for r in range(RADIOS_PER_USER):
+            bs_idx = associations[u, r]
+            if u not in user_bs_sets[bs_idx]:
+                bs_user_count[bs_idx] += 1
+                user_bs_sets[bs_idx].add(u)
             active_cells[bs_idx] = True
 
             bs_x, bs_y = base_stations[bs_idx][:2]
@@ -164,13 +178,11 @@ for i, t in enumerate(sim_times):
             throughput += user_rate
 
     # === Actualizar métricas ===
-    # Update live data
     femto_on = np.sum(active_cells[N_MACRO:N_MACRO + N_FEMTO])
     live_femto_usage.append(femto_on)
     live_times.append(t)
     live_throughput.append(throughput / 1e6)
 
-    # Update plot lines
     max_cells_line.set_data([0, t], [N_FEMTO, N_FEMTO])
     femto_usage_line.set_data(live_times, live_femto_usage)
     usage_text.set_text(f"Phantom Cells ON: {femto_on}")
