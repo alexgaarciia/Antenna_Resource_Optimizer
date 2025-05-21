@@ -1,20 +1,26 @@
-import os
+############################
+# Import necessary libraries
+############################
 import numpy as np
 import scipy.io
 import time
 import matplotlib.pyplot as plt
+
 from shapely.geometry import Polygon
 from matplotlib.patches import Polygon as MplPolygon
 from matplotlib.collections import PatchCollection
 
-from mobility_utils import generate_mobility
-from map_utils import recompute_regions
-from radio_utils import compute_sinr_dl
+from utils.mobility_utils import generate_mobility
+from utils.map_utils import recompute_regions
+from utils.radio_utils import compute_sinr_dl
 from scipy.ndimage import uniform_filter1d
 
 from stable_baselines3 import PPO
 
-# === CONFIGURACIÓN ===
+
+############################
+# Global variables
+############################
 MAP_LIMIT = 1000
 ALPHA_LOSS = 4
 PMACRO = 40
@@ -31,12 +37,17 @@ N_USERS = 5
 RADIOS_PER_USER = 2
 
 sim_times = np.arange(0, SIM_TIME + TIME_STEP, TIME_STEP)
-os.makedirs("results", exist_ok=True)
 
-# === CARGAR MODELO PPO ===
+
+############################
+# Load PPO model
+############################
 model = PPO.load("ppo_cellular_multi_connectivity")
 
-# === CARGAR ESTACIONES BASE ===
+
+############################
+# Load base stations
+############################
 mat = scipy.io.loadmat("nice_setup_Proteus.mat")
 base_stations = mat["BaseStations"]
 n_points = base_stations.shape[0]
@@ -47,7 +58,10 @@ N_FEMTO = 10
 colors = np.random.rand(n_points, 3)
 regions = recompute_regions(n_points, MAP_LIMIT, base_stations, ALPHA_LOSS)
 
-# === GENERAR MOVILIDAD ===
+
+############################
+# Generate mobility
+############################
 sim_input = {
     'V_POSITION_X_INTERVAL': [0, MAP_LIMIT],
     'V_POSITION_Y_INTERVAL': [0, MAP_LIMIT],
@@ -66,11 +80,14 @@ for node in s_mobility["VS_NODE"]:
     y = np.interp(sim_times, node["V_TIME"], node["V_POSITION_Y"])
     user_positions.append((x, y))
 
-# === PREPARAR PLOTS EN VIVO ===
+
+############################
+# Plots setup
+############################
 plt.ion()
 fig, (ax_map, ax_usage, ax_throughput) = plt.subplots(1, 3, figsize=(18, 6))
 
-# MAPA
+# Map with base stations
 ax_map.set_xlim(0, MAP_LIMIT)
 ax_map.set_ylim(0, MAP_LIMIT)
 for j, (x, y, _) in enumerate(base_stations):
@@ -88,7 +105,7 @@ for j, region in enumerate(regions):
             patches.append(patch)
 ax_map.add_collection(PatchCollection(patches, match_original=True))
 
-# Inicializar usuarios y líneas
+# Define user dots and lines
 user_dots, assoc_lines = [], []
 for u in range(N_USERS):
     dot, = ax_map.plot([], [], '+', color='blue', markersize=10, markeredgewidth=2)
@@ -99,7 +116,7 @@ for u in range(N_USERS):
         user_lines.append(line)
     assoc_lines.append(user_lines)
 
-# USO DE CELDAS 
+# Number of small cells under use
 ax_usage.set_xlim(0, SIM_TIME)
 ax_usage.set_ylim(0, N_FEMTO + 1)
 ax_usage.set_title("Number of small cells under use")
@@ -110,7 +127,7 @@ femto_usage_line, = ax_usage.plot([], [], 'g', label='Small cells being used')
 usage_text = ax_usage.text(0, N_FEMTO - 1, "Phantom Cells ON: 0", fontsize=9)
 ax_usage.legend()
 
-# THROUGHPUT
+# Throughput plot
 ax_throughput.set_xlim(0, SIM_TIME)
 ax_throughput.set_ylim(0, 3000)
 ax_throughput.set_title("Throughput acumulado")
@@ -118,7 +135,10 @@ ax_throughput.set_xlabel("Tiempo [s]")
 ax_throughput.set_ylabel("Mbps")
 th_plot, = ax_throughput.plot([], [], 'b')
 
-# === LOOP DE SIMULACIÓN ===
+
+############################
+# Simulation loop
+############################
 live_femto_usage = []
 live_throughput = []
 live_times = []
@@ -128,7 +148,7 @@ for i, t in enumerate(sim_times):
     active_cells = np.zeros(n_points, dtype=bool)
     throughput = 0
 
-    # === Construir observación para el DRL ===
+    # Build observation for DRL
     user_pos_this_step = []
     for u, (ux, uy) in enumerate(user_positions[:N_USERS]):
         x = ux[i]
@@ -138,11 +158,11 @@ for i, t in enumerate(sim_times):
 
     obs_vec = np.array(user_pos_this_step + list(bs_user_count), dtype=np.float32).reshape(1, -1)
 
-    # === Obtener asociaciones del DRL ===
+    # Obtain action from DRL model
     action, _ = model.predict(obs_vec, deterministic=True)
     associations = np.array(action).reshape((N_USERS, RADIOS_PER_USER))
 
-    # Reset conteo BS
+    # Reset BS counter
     bs_user_count = np.zeros(n_points, dtype=int)
     user_bs_sets = [set() for _ in range(n_points)]
 
@@ -177,12 +197,13 @@ for i, t in enumerate(sim_times):
             user_rate = (bw / bs_user_count[bs_idx]) * np.log2(1 + snr_linear)
             throughput += user_rate
 
-    # === Actualizar métricas ===
+    # Update metrics and live data
     femto_on = np.sum(active_cells[N_MACRO:N_MACRO + N_FEMTO])
     live_femto_usage.append(femto_on)
     live_times.append(t)
     live_throughput.append(throughput / 1e6)
 
+    # Update plot lines
     max_cells_line.set_data([0, t], [N_FEMTO, N_FEMTO])
     femto_usage_line.set_data(live_times, live_femto_usage)
     usage_text.set_text(f"Phantom Cells ON: {femto_on}")
