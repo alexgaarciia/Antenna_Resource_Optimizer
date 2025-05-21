@@ -42,7 +42,7 @@ sim_times = np.arange(0, SIM_TIME + TIME_STEP, TIME_STEP)
 ############################
 # Load PPO model
 ############################
-model = PPO.load("ppo_cellular_multi_connectivity")
+model = PPO.load("trained_agents\proportional_fairness\ppo_cellular_multi_connectivity")
 
 
 ############################
