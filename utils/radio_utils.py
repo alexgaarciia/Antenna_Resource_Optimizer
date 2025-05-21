@@ -1,5 +1,5 @@
 import numpy as np
-from map_utils import get_euclidean_distance
+from utils.map_utils import get_euclidean_distance
 
 def compute_sinr_dl(p, base_stations, closest_idx, alpha, p_macro, p_femto, n_macro, noise, b):
     """

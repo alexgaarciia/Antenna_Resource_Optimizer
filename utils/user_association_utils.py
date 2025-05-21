@@ -1,5 +1,5 @@
 import numpy as np
-from map_utils import get_euclidean_distance
+from utils.map_utils import get_euclidean_distance
 
 def search_closest_macro(device_pos, base_stations):
     """

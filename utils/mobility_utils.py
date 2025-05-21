@@ -30,8 +30,6 @@ def generate_mobility(s_input):
                 - V_SPEED_X
                 - V_SPEED_Y
     """
-    np.random.seed(42)  # For reproducibility (optional)
-
     s_mobility = {
         "NB_NODES": s_input["NB_NODES"],
         "SIMULATION_TIME": s_input["SIMULATION_TIME"],
@@ -98,8 +96,27 @@ def generate_mobility(s_input):
 
     return s_mobility
 
-
 def append_point(node, x, y, direction, speed, is_moving, duration, time):
+    """
+    Append a single waypoint/state to the current node's mobility trace.
+
+    Parameters
+    ----------
+    node : dict
+        The mobility trace for the current node (to be updated in place).
+    x, y : float
+        Position coordinates.
+    direction : float
+        Movement direction (degrees).
+    speed : float
+        Speed at this point (m/s).
+    is_moving : bool
+        Whether the node is moving at this segment.
+    duration : float
+        Duration of this segment (seconds).
+    time : float
+        Absolute time of this waypoint (seconds).
+    """
     node["V_POSITION_X"].append(x)
     node["V_POSITION_Y"].append(y)
     node["V_DIRECTION"].append(direction)
@@ -110,6 +127,21 @@ def append_point(node, x, y, direction, speed, is_moving, duration, time):
 
 
 def walk_random_waypoint(node, x, y, d, t, s_input):
+    """
+    Simulate a random walk (Random Waypoint model) for the node until
+    it reaches the walk interval or a map boundary.
+
+    Parameters
+    ----------
+    node : dict
+        The node's mobility trace to update.
+    x, y : float
+        Current coordinates.
+    d, t : float
+        Previous segment duration and time.
+    s_input : dict
+        Mobility simulation settings.
+    """
     duration = adjust_duration(t + d, np.random.uniform(*s_input["V_WALK_INTERVAL"]), s_input)
     direction = np.random.uniform(*s_input["V_DIRECTION_INTERVAL"])
     speed = np.random.uniform(*s_input["V_SPEED_INTERVAL"])
@@ -164,7 +196,21 @@ def walk_random_waypoint(node, x, y, d, t, s_input):
 
 def adjust_duration(current_time, duration, s_input):
     """
-    Shortens the duration if the time would exceed the simulation limit.
+    Ensure that the given duration does not exceed the simulation time.
+
+    Parameters
+    ----------
+    current_time : float
+        Current absolute time.
+    duration : float
+        Proposed duration for next segment.
+    s_input : dict
+        Mobility simulation settings.
+
+    Returns
+    -------
+    float
+        Adjusted duration, possibly shortened to end at SIMULATION_TIME.
     """
     if current_time + duration >= s_input["SIMULATION_TIME"]:
         return s_input["SIMULATION_TIME"] - current_time
@@ -173,7 +219,12 @@ def adjust_duration(current_time, duration, s_input):
 
 def trim_null_pauses(node):
     """
-    Remove points with 0 duration except the last one.
+    Remove waypoints/segments with zero duration (except the last one) from a node's trace.
+
+    Parameters
+    ----------
+    node : dict
+        Mobility trace to clean (in-place).
     """
     if len(node["V_DURATION"]) < 2:
         return
@@ -185,7 +236,15 @@ def trim_null_pauses(node):
 
 def trim_final_microstep(node, sim_time):
     """
-    Ensures the last time step is exactly SIMULATION_TIME and clean.
+    Ensure the last waypoint exactly matches the final simulation time,
+    and that velocities and durations are zero at the end.
+
+    Parameters
+    ----------
+    node : dict
+        Mobility trace to clean (in-place).
+    sim_time : float
+        The simulation end time.
     """
     if len(node["V_TIME"]) >= 2 and abs(node["V_TIME"][-1] - node["V_TIME"][-2]) < 1e-14:
         for key in ["V_TIME", "V_POSITION_X", "V_POSITION_Y", "V_DIRECTION",
