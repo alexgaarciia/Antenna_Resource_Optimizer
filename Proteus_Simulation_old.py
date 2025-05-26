@@ -13,6 +13,7 @@ from matplotlib.collections import PatchCollection
 from utils.mobility_utils import generate_mobility
 from utils.map_utils import recompute_regions, search_closest_bs
 from utils.radio_utils import compute_sinr_dl
+from utils.metric_utils import compute_f_alpha
 from scipy.ndimage import uniform_filter1d
 
 
@@ -134,11 +135,13 @@ th_plot, = ax_throughput.plot([], [], 'b')
 live_femto_usage = []
 live_throughput = []
 live_times = []
+live_falpha = []
 
 for i, t in enumerate(sim_times):
     active_cells = np.zeros(n_points, dtype=bool)
     bs_user_count = np.zeros(n_points, dtype=int)
     throughput = 0
+    user_rates = []
 
     for u, (ux, uy) in enumerate(user_positions[:N_USERS]):
         x = ux[i]
@@ -146,6 +149,7 @@ for i, t in enumerate(sim_times):
         user_dots[u].set_data(x, y)
 
         already_chosen = []
+        user_rate = 0
         for r in range(RADIOS_PER_USER):
             bs_idx = search_closest_bs((x, y), recompute_regions(
                 n_points=n_points,
@@ -176,14 +180,20 @@ for i, t in enumerate(sim_times):
             )
             snr_linear = 10 ** (sinr / 10)
             bw = MACRO_BW if bs_idx < N_MACRO else FEMTO_BW
-            user_rate = (bw / bs_user_count[bs_idx]) * np.log2(1 + snr_linear)
-            throughput += user_rate
+            rate = (bw / bs_user_count[bs_idx]) * np.log2(1 + snr_linear)
+            user_rate += rate
+        
+        throughput += user_rate
+        user_rates.append(user_rate/1e6)
 
     # Update metrics and live data
     femto_on = np.sum(active_cells[N_MACRO:N_MACRO + N_FEMTO])
     live_femto_usage.append(femto_on)
     live_times.append(t)
     live_throughput.append(throughput / 1e6)
+
+    # Compute F_alpha and store it
+    live_falpha.append(compute_f_alpha(np.array(user_rates), alpha=1.0))
 
     # Update plot lines
     max_cells_line.set_data([0, t], [N_FEMTO, N_FEMTO])
@@ -200,4 +210,14 @@ for i, t in enumerate(sim_times):
     time.sleep(0.005)
 
 plt.ioff()
+plt.show()
+
+# Plot F_alpha over time
+plt.figure(figsize=(8, 4))
+plt.plot(live_times, live_falpha, color='purple')
+plt.title("F_alpha over time")
+plt.xlabel("Tiempo [s]")
+plt.ylabel("F_alpha")
+plt.grid(True)
+plt.tight_layout()
 plt.show()
